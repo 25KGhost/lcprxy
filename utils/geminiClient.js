@@ -94,25 +94,25 @@ class GeminiClient {
           topP: 0.95,
           maxOutputTokens: options.maxTokens || 1024,
         },
-        // In utils/geminiClient.js - Replace the safetySettings array with this:
-safetySettings: [
-  {
-    category: "HARM_CATEGORY_HARASSMENT",
-    threshold: "BLOCK_ONLY_HIGH"
-  },
-  {
-    category: "HARM_CATEGORY_HATE_SPEECH", 
-    threshold: "BLOCK_ONLY_HIGH"
-  },
-  {
-    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-    threshold: "BLOCK_ONLY_HIGH"
-  },
-  {
-    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-    threshold: "BLOCK_ONLY_HIGH"
-  }
-]
+        // UPDATED: More permissive safety settings
+        safetySettings: [
+          {
+            category: "HARM_CATEGORY_HARASSMENT",
+            threshold: "BLOCK_ONLY_HIGH"
+          },
+          {
+            category: "HARM_CATEGORY_HATE_SPEECH",
+            threshold: "BLOCK_ONLY_HIGH"
+          },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_ONLY_HIGH"
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_ONLY_HIGH"
+          }
+        ]
       };
 
       // Add system instruction if present (Gemini 1.5+ feature)
@@ -141,6 +141,10 @@ safetySettings: [
         } else if (response.status === 403) {
           throw new Error('API key invalid or insufficient permissions.');
         } else if (response.status === 400) {
+          // More specific error for safety blocks
+          if (errorMessage.includes('safety') || errorMessage.includes('blocked')) {
+            throw new Error('Response blocked due to safety concerns. Please rephrase your question to be more business-focused.');
+          }
           throw new Error(`Invalid request: ${errorMessage}`);
         } else {
           throw new Error(`Gemini API error: ${response.status} - ${errorMessage}`);
@@ -157,7 +161,7 @@ safetySettings: [
       
       // Check for safety blocks
       if (candidate.finishReason === 'SAFETY') {
-        throw new Error('Response blocked due to safety concerns');
+        throw new Error('Response blocked due to safety concerns. Please try a different business question.');
       }
 
       if (candidate.finishReason === 'RECITATION') {
