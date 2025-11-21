@@ -7,8 +7,11 @@ export const config = {
 };
 
 const apiKey = process.env.GEMINI_API_KEY;
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
+// 🔥 Log whether the API key exists
+console.log("API key exists:", !!apiKey);
+
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 const MODEL_NAME = "gemini-2.5-flash-preview";
 
 export default async function handler(req, res) {
