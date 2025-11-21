@@ -1,6 +1,6 @@
 /**
  * Professional Gemini API Client Wrapper
- * Handles API communication with error handling and message sanitization
+ * Updated for free Gemini API
  */
 
 class GeminiClient {
@@ -11,7 +11,7 @@ class GeminiClient {
     
     this.apiKey = apiKey.trim();
     this.baseURL = 'https://generativelanguage.googleapis.com/v1beta/models';
-    this.model = 'gemini-2.0-flash-exp'; // Using the stable flash model
+    this.model = 'gemini-1.5-flash'; // FREE model that works with API key
   }
 
   /**
@@ -42,25 +42,38 @@ class GeminiClient {
       throw new Error('Messages must be an array');
     }
 
-    return messages.map(msg => {
-      if (!msg || typeof msg !== 'object') {
-        throw new Error('Each message must be an object');
-      }
+    // Filter out system messages and format for Gemini
+    const geminiMessages = messages
+      .filter(msg => msg.role !== 'system')
+      .map(msg => {
+        if (!msg || typeof msg !== 'object') {
+          throw new Error('Each message must be an object');
+        }
 
-      if (msg.role !== 'user' && msg.role !== 'assistant') {
-        throw new Error('Message role must be "user" or "assistant"');
-      }
+        if (msg.role !== 'user' && msg.role !== 'assistant') {
+          throw new Error('Message role must be "user" or "assistant"');
+        }
 
-      const content = this.sanitizeMessage(msg.content);
-      if (!content) {
-        throw new Error('Message content cannot be empty after sanitization');
-      }
+        const content = this.sanitizeMessage(msg.content);
+        if (!content) {
+          throw new Error('Message content cannot be empty after sanitization');
+        }
 
-      return {
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: content }]
-      };
-    });
+        return {
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: content }]
+        };
+      });
+
+    return geminiMessages;
+  }
+
+  /**
+   * Extract system instruction from messages
+   */
+  getSystemInstruction(messages) {
+    const systemMessage = messages.find(msg => msg.role === 'system');
+    return systemMessage ? { text: systemMessage.content } : undefined;
   }
 
   /**
@@ -69,6 +82,7 @@ class GeminiClient {
   async generateContent(messages, options = {}) {
     try {
       const preparedMessages = this.prepareMessages(messages);
+      const systemInstruction = this.getSystemInstruction(messages);
       
       const requestBody = {
         contents: preparedMessages,
@@ -100,6 +114,11 @@ class GeminiClient {
         ]
       };
 
+      // Add system instruction if present (Gemini 1.5+ feature)
+      if (systemInstruction) {
+        requestBody.systemInstruction = systemInstruction;
+      }
+
       const response = await fetch(
         `${this.baseURL}/${this.model}:generateContent?key=${this.apiKey}`,
         {
@@ -113,15 +132,24 @@ class GeminiClient {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          `Gemini API error: ${response.status} ${response.statusText} - ${errorData.error?.message || 'Unknown error'}`
-        );
+        const errorMessage = errorData.error?.message || 'Unknown error';
+        
+        // Handle specific Gemini API errors
+        if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again in a moment.');
+        } else if (response.status === 403) {
+          throw new Error('API key invalid or insufficient permissions.');
+        } else if (response.status === 400) {
+          throw new Error(`Invalid request: ${errorMessage}`);
+        } else {
+          throw new Error(`Gemini API error: ${response.status} - ${errorMessage}`);
+        }
       }
 
       const data = await response.json();
 
-      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-        throw new Error('Invalid response format from Gemini API');
+      if (!data.candidates || !data.candidates[0]) {
+        throw new Error('No response generated from Gemini API');
       }
 
       const candidate = data.candidates[0];
@@ -131,8 +159,12 @@ class GeminiClient {
         throw new Error('Response blocked due to safety concerns');
       }
 
+      if (candidate.finishReason === 'RECITATION') {
+        throw new Error('Response contained recitation from training data');
+      }
+
       return {
-        content: candidate.content.parts[0]?.text || '',
+        content: candidate.content?.parts[0]?.text || 'No response generated.',
         finishReason: candidate.finishReason,
         usage: data.usageMetadata || {},
         safetyRatings: candidate.safetyRatings || []
@@ -140,7 +172,8 @@ class GeminiClient {
 
     } catch (error) {
       // Re-throw with more context if it's already our error
-      if (error.message.startsWith('Gemini API error') || 
+      if (error.message.startsWith('Rate limit') ||
+          error.message.startsWith('API key') ||
           error.message.startsWith('Invalid') ||
           error.message.startsWith('Message') ||
           error.message.startsWith('Response blocked')) {
