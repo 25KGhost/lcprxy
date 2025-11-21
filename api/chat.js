@@ -6,7 +6,7 @@ const apiKey = process.env.GEMINI_API_KEY;
 
 // Initialize AI client only if the key is available
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-const MODEL_NAME = "gemini-1.5-flash"; // Standard model for fast chat
+const MODEL_NAME = "gemini-1.5-flash";
 
 // 2. Export the main serverless function
 // Using an anonymous function export, which is robust for Vercel
