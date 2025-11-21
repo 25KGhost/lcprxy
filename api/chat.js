@@ -1,6 +1,6 @@
 /**
  * Vercel Serverless API Endpoint for Gemini Chat
- * Updated for free Gemini API with rate limiting
+ * Production-ready with rate limiting and error handling
  */
 
 const { getGeminiClient } = require('../utils/geminiClient');
