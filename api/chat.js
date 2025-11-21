@@ -6,19 +6,19 @@ const apiKey = process.env.GEMINI_API_KEY;
 
 // Initialize AI client only if the key is available
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-const MODEL_NAME = "gemini-1.5-flash";
+// --- FINAL FIX APPLIED HERE: USING THE FULL, STABLE MODEL STRING ---
+const MODEL_NAME = "gemini-2.5-flash-preview-09-2025"; 
 
 // 2. Export the main serverless function
-// Using an anonymous function export, which is robust for Vercel
 export default async function (req, res) {
-    // 3. Set necessary headers for cross-origin requests (Must be done first)
+    // 3. Set necessary headers for cross-origin requests
     res.setHeader('Access-Control-Allow-Origin', '*'); // Allows ALL domains
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
 
     const method = req.method ? req.method.toUpperCase() : 'UNKNOWN';
 
-    // Handle preflight OPTIONS request (sent by browser before POST)
+    // Handle preflight OPTIONS request
     if (method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -37,7 +37,6 @@ export default async function (req, res) {
     // 6. Parse Request Body
     let data;
     try {
-        // Vercel sometimes parses body, sometimes leaves it as a string. Check both.
         const body = req.body || {};
         data = typeof body === 'string' ? JSON.parse(body) : body; 
     } catch (e) {
@@ -53,7 +52,6 @@ export default async function (req, res) {
 
     try {
         // 7. Construct the full Gemini payload
-        // history is an array of { role, parts: [{ text }] }
         const contents = [
             ...(history || []),
             { role: "user", parts: [{ text: prompt }] }
@@ -64,7 +62,6 @@ export default async function (req, res) {
             model: MODEL_NAME,
             contents: contents,
             config: {
-                // Pass the system instruction received from the client
                 systemInstruction: systemInstruction || "", 
                 temperature: 0.5 
             },
@@ -77,6 +74,7 @@ export default async function (req, res) {
 
     } catch (error) {
         console.error("Gemini API Error (POST failure):", error);
+        // Log the exact error for future debugging, but send a user-friendly error to the client
         res.status(500).json({ 
             error: 'Internal Server Error during model processing.', 
             details: error.message 
