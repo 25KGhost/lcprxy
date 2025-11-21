@@ -1,13 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 
 // 1. Initialize the GoogleGenAI client
-// The API key is securely loaded from the environment variable (VERCEL_ENV_VAR)
 const apiKey = process.env.GEMINI_API_KEY; 
 
 // Initialize AI client only if the key is available
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-// --- FINAL FIX APPLIED HERE: USING THE FULL, STABLE MODEL STRING ---
-const MODEL_NAME = "gemini-2.5-flash-preview-09-2025"; 
+// --- FINAL MODEL ALIAS: Using the most compatible alias for the fast model ---
+const MODEL_NAME = "gemini-2.5-flash-preview"; 
 
 // 2. Export the main serverless function
 export default async function (req, res) {
@@ -43,7 +42,6 @@ export default async function (req, res) {
         return res.status(400).json({ error: 'Invalid JSON payload received.' });
     }
     
-    // We expect history (array), prompt (string), and systemInstruction (string)
     const { history, prompt, systemInstruction } = data;
 
     if (!prompt) {
@@ -74,7 +72,6 @@ export default async function (req, res) {
 
     } catch (error) {
         console.error("Gemini API Error (POST failure):", error);
-        // Log the exact error for future debugging, but send a user-friendly error to the client
         res.status(500).json({ 
             error: 'Internal Server Error during model processing.', 
             details: error.message 
