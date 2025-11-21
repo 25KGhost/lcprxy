@@ -1,17 +1,54 @@
 /**
  * Vercel Serverless API Endpoint for Gemini Chat
- * Professional error handling and CORS support
+ * Updated for free Gemini API with rate limiting
  */
 
 const { getGeminiClient } = require('../utils/geminiClient');
+
+// Simple in-memory rate limiting (for demo - use Redis in production)
+const rateLimitMap = new Map();
+const RATE_LIMIT = 60; // 60 requests per minute (free tier limit)
+const RATE_LIMIT_WINDOW = 60000; // 1 minute in milliseconds
 
 // CORS headers for browser requests
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-ID',
   'Content-Type': 'application/json; charset=utf-8'
 };
+
+/**
+ * Simple rate limiting middleware
+ */
+function checkRateLimit(identifier) {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW;
+  
+  let requests = rateLimitMap.get(identifier) || [];
+  
+  // Clean old requests
+  requests = requests.filter(timestamp => timestamp > windowStart);
+  
+  if (requests.length >= RATE_LIMIT) {
+    return false;
+  }
+  
+  requests.push(now);
+  rateLimitMap.set(identifier, requests);
+  return true;
+}
+
+/**
+ * Get client identifier for rate limiting
+ */
+function getClientIdentifier(req) {
+  // Use IP address or a custom header
+  return req.headers['x-forwarded-for'] || 
+         req.headers['x-real-ip'] || 
+         req.connection.remoteAddress ||
+         'anonymous';
+}
 
 /**
  * Standardized error response helper
@@ -64,6 +101,19 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // Apply rate limiting
+    const clientId = getClientIdentifier(req);
+    if (!checkRateLimit(clientId)) {
+      res.writeHead(429, {
+        ...corsHeaders,
+        'Retry-After': '60'
+      });
+      res.end(JSON.stringify(
+        createErrorResponse(429, 'Rate limit exceeded', 'Please try again in a minute')
+      ));
+      return;
+    }
+
     // Validate Content-Type
     const contentType = req.headers['content-type'];
     if (!contentType || !contentType.includes('application/json')) {
@@ -151,6 +201,9 @@ module.exports = async (req, res) => {
     } else if (error.message.includes('Invalid') || error.message.includes('Message')) {
       statusCode = 400;
       errorMessage = error.message;
+    } else if (error.message.includes('Rate limit')) {
+      statusCode = 429;
+      errorMessage = 'Rate limit exceeded. Please try again in a moment.';
     } else if (error.message.includes('Gemini API error')) {
       statusCode = 502;
       errorMessage = 'AI service temporarily unavailable';
@@ -158,7 +211,7 @@ module.exports = async (req, res) => {
     } else if (error.message.includes('unavailable')) {
       statusCode = 503;
       errorMessage = 'AI service temporarily unavailable';
-    } else if (error.message.includes('safety')) {
+    } else if (error.message.includes('safety') || error.message.includes('blocked')) {
       statusCode = 400;
       errorMessage = 'Request blocked for safety reasons';
     } else {
