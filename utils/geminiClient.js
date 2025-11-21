@@ -1,6 +1,6 @@
 /**
  * Professional Gemini API Client Wrapper
- * Updated for free Gemini API
+ * Optimized for free Gemini API tier
  */
 
 class GeminiClient {
@@ -11,7 +11,7 @@ class GeminiClient {
     
     this.apiKey = apiKey.trim();
     this.baseURL = 'https://generativelanguage.googleapis.com/v1beta/models';
-    this.model = 'gemini-1.5-flash'; // FREE model that works with API key
+    this.model = 'gemini-1.5-flash'; // FREE model
   }
 
   /**
@@ -73,7 +73,7 @@ class GeminiClient {
    */
   getSystemInstruction(messages) {
     const systemMessage = messages.find(msg => msg.role === 'system');
-    return systemMessage ? { text: systemMessage.content } : undefined;
+    return systemMessage ? systemMessage.content : undefined;
   }
 
   /**
@@ -116,7 +116,7 @@ class GeminiClient {
 
       // Add system instruction if present (Gemini 1.5+ feature)
       if (systemInstruction) {
-        requestBody.systemInstruction = systemInstruction;
+        requestBody.systemInstruction = { parts: [{ text: systemInstruction }] };
       }
 
       const response = await fetch(
