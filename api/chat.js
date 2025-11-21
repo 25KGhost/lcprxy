@@ -1,80 +1,174 @@
-import { GoogleGenAI } from "@google/genai";
+/**
+ * Vercel Serverless API Endpoint for Gemini Chat
+ * Professional error handling and CORS support
+ */
 
-export const config = {
-  api: {
-    bodyParser: true,
-  },
+const { getGeminiClient } = require('../utils/geminiClient');
+
+// CORS headers for browser requests
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Content-Type': 'application/json; charset=utf-8'
 };
 
-// ✅ Safely read API key
-const apiKey = process.env.GEMINI_API_KEY;
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+/**
+ * Standardized error response helper
+ */
+function createErrorResponse(statusCode, message, details = null) {
+  const response = {
+    success: false,
+    error: {
+      message,
+      code: statusCode,
+      timestamp: new Date().toISOString()
+    }
+  };
+  
+  if (details) {
+    response.error.details = details;
+  }
+  
+  return response;
+}
 
-// Model to use
-const MODEL_NAME = "gemini-2.5-flash-preview";
+/**
+ * Success response helper
+ */
+function createSuccessResponse(data) {
+  return {
+    success: true,
+    data: {
+      ...data,
+      timestamp: new Date().toISOString()
+    }
+  };
+}
 
-export default async function handler(req, res) {
-  // CORS headers for your mentor HTML
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
-
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
-
-  if (!ai) {
-    console.error("API key missing!");
-    return res.status(500).json({ error: "Missing GEMINI_API_KEY." });
+module.exports = async (req, res) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200, corsHeaders);
+    res.end();
+    return;
   }
 
-  const { history = [], prompt, systemInstruction } = req.body || {};
-
-  if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
-    return res.status(400).json({ error: 'Missing or invalid "prompt" field.' });
+  // Only allow POST requests
+  if (req.method !== 'POST') {
+    res.writeHead(405, corsHeaders);
+    res.end(JSON.stringify(
+      createErrorResponse(405, 'Method Not Allowed', 'Only POST requests are supported')
+    ));
+    return;
   }
-
-  // Ensure systemInstruction is defined
-  const systemPrompt = systemInstruction && systemInstruction.trim() !== ""
-    ? systemInstruction
-    : "You are an elite, highly constrained business mentor focused ONLY on providing surgical, tactical advice for founders and executives on business growth, scaling, and operational efficiency. Deliver short, actionable advice only.";
 
   try {
-    // Build contents safely: system, previous assistant messages, user
-    const contents = [
-      { role: "system", parts: [{ text: systemPrompt }] },
-      ...history
-        .filter(msg => msg && msg.role && msg.parts && Array.isArray(msg.parts))
-        .map(msg => ({
-          role: msg.role,
-          parts: msg.parts
-            .filter(p => p && typeof p.text === "string")
-            .map(p => ({ text: p.text }))
-        }))
-        .filter(msg => msg.parts.length > 0), // skip empty messages
-      { role: "user", parts: [{ text: prompt }] }
-    ];
-
-    // Final safety check
-    if (contents.length === 0) {
-      throw new Error("No valid contents to send to Gemini.");
+    // Validate Content-Type
+    const contentType = req.headers['content-type'];
+    if (!contentType || !contentType.includes('application/json')) {
+      res.writeHead(415, corsHeaders);
+      res.end(JSON.stringify(
+        createErrorResponse(415, 'Unsupported Media Type', 'Content-Type must be application/json')
+      ));
+      return;
     }
 
-    // Call Gemini safely
-    const result = await ai.models.generateContent(MODEL_NAME, { contents, generationConfig: { temperature: 0.5 } });
+    // Parse request body
+    let body;
+    try {
+      body = JSON.parse(req.body);
+    } catch (parseError) {
+      res.writeHead(400, corsHeaders);
+      res.end(JSON.stringify(
+        createErrorResponse(400, 'Invalid JSON in request body')
+      ));
+      return;
+    }
 
-    // Extract text safely
-    const text =
-      result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
-      "No content generated.";
+    // Validate required fields
+    if (!body || !Array.isArray(body.messages)) {
+      res.writeHead(400, corsHeaders);
+      res.end(JSON.stringify(
+        createErrorResponse(400, 'Missing or invalid messages array')
+      ));
+      return;
+    }
 
-    return res.status(200).json({ text });
+    // Validate at least one message exists
+    if (body.messages.length === 0) {
+      res.writeHead(400, corsHeaders);
+      res.end(JSON.stringify(
+        createErrorResponse(400, 'Messages array cannot be empty')
+      ));
+      return;
+    }
 
-  } catch (err) {
-    console.error("Gemini ERROR:", err);
-    // Always return JSON with status 500, never crash
-    return res.status(500).json({
-      error: "Internal Server Error during model processing.",
-      details: err.message || "Unknown error",
-    });
+    // Get API key from environment
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.error('GEMINI_API_KEY environment variable is not set');
+      res.writeHead(500, corsHeaders);
+      res.end(JSON.stringify(
+        createErrorResponse(500, 'Server configuration error', 'API key not configured')
+      ));
+      return;
+    }
+
+    // Initialize Gemini client
+    const geminiClient = getGeminiClient(apiKey);
+
+    // Generate response
+    const options = {
+      temperature: typeof body.temperature === 'number' ? body.temperature : undefined,
+      maxTokens: typeof body.maxTokens === 'number' ? body.maxTokens : undefined,
+    };
+
+    const result = await geminiClient.generateContent(body.messages, options);
+
+    // Send successful response
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify(
+      createSuccessResponse({
+        message: result.content,
+        finishReason: result.finishReason,
+        usage: result.usage,
+        safetyRatings: result.safetyRatings
+      })
+    ));
+
+  } catch (error) {
+    console.error('Chat API error:', error);
+
+    // Determine appropriate status code based on error type
+    let statusCode = 500;
+    let errorMessage = 'Internal server error';
+    let errorDetails = null;
+
+    if (error.message.includes('API key') || error.message.includes('GEMINI_API_KEY')) {
+      statusCode = 500;
+      errorMessage = 'Server configuration error';
+    } else if (error.message.includes('Invalid') || error.message.includes('Message')) {
+      statusCode = 400;
+      errorMessage = error.message;
+    } else if (error.message.includes('Gemini API error')) {
+      statusCode = 502;
+      errorMessage = 'AI service temporarily unavailable';
+      errorDetails = error.message;
+    } else if (error.message.includes('unavailable')) {
+      statusCode = 503;
+      errorMessage = 'AI service temporarily unavailable';
+    } else if (error.message.includes('safety')) {
+      statusCode = 400;
+      errorMessage = 'Request blocked for safety reasons';
+    } else {
+      // Generic error for production
+      errorMessage = 'Service temporarily unavailable';
+    }
+
+    res.writeHead(statusCode, corsHeaders);
+    res.end(JSON.stringify(
+      createErrorResponse(statusCode, errorMessage, errorDetails)
+    ));
   }
-}
+};
