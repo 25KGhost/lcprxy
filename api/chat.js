@@ -7,12 +7,9 @@ export const config = {
 };
 
 const apiKey = process.env.GEMINI_API_KEY;
-
-// 🔥 Log whether the API key exists
-console.log("API key exists:", !!apiKey);
-
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-const MODEL_NAME = "gemini-2.5-flash-preview";
+
+const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -33,8 +30,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing "prompt" field.' });
 
   try {
+    // Fix: ensure every history item has a parts array
     const contents = [
-      ...(history || []),
+      ...(history || []).map(item => ({
+        role: item.role,
+        parts: item.parts || [{ text: item.text || "" }],
+      })),
       { role: "user", parts: [{ text: prompt }] },
     ];
 
